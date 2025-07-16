@@ -1,0 +1,11 @@
+# Zerodha Trading Bot - Order Log
+# Format: Timestamp | Order Type | Action | Symbol | Price | Quantity | Order ID
+# 
+# Sample entries:
+# 2024-01-15 09:30:15 | ENTRY | BUY | RELIANCE | Price: 2450.50 | Qty: 1 | Order ID: 12345678
+# 2024-01-15 09:30:16 | STOPLOSS | SELL | RELIANCE | Price: 2400.00 | Qty: 1 | Order ID: 12345679
+# 2024-01-15 09:30:17 | TARGET | SELL | RELIANCE | Price: 2550.00 | Qty: 1 | Order ID: 12345680
+# 2024-01-15 10:15:30 | STOPLOSS_HIT | RELIANCE | Price: 2400.00
+# 2024-01-15 11:45:20 | TARGET_HIT | RELIANCE | Price: 2550.00
+#
+# This file will be automatically updated by the trading bot
