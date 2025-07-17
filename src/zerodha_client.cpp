@@ -729,13 +729,13 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
     
     // Buy Strategy
     // thirdopen>thirdclose and secondopen>secondclose and secondclose>thirdclose and secondclose>secondema and thirdclose>thirdema and lastclose>lastema
-    if (data.third_open > data.third_close && 
-        data.second_open > data.second_close && 
-        data.second_close > data.third_close && 
+    if (data.third_open < data.third_close && 
+        data.second_open < data.second_close && 
+       // data.second_close > data.third_close && 
         data.second_close > data.second_ema && 
         data.third_close > data.third_ema && 
         data.last_close > data.last_ema &&
-        data.last_close > data.second_close) {
+        data.last_close > data.second_high) {
         
         signal.action = "BUY";
         signal.entry_price = data.last_close;
@@ -747,13 +747,13 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
     }
     // Sell Strategy
     // thirdopen<thirdclose and secondopen<secondclose and secondclose<thirdclose and secondclose<secondema and thirdclose<thirdema and lastclose<lastema
-    else if (data.third_open < data.third_close && 
-             data.second_open < data.second_close && 
-             data.second_close < data.third_close && 
+    else if (data.third_open > data.third_close && 
+             data.second_open > data.second_close && 
+            // data.second_close < data.third_close && 
              data.second_close < data.second_ema && 
              data.third_close < data.third_ema && 
              data.last_close < data.last_ema &&
-             data.last_close < data.second_close) {
+             data.last_close < data.second_low) {
         
         signal.action = "SELL";
         signal.entry_price = data.last_close;
