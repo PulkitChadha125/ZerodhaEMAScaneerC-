@@ -697,6 +697,61 @@ LastThreeCandles ZerodhaClient::getLastThreeCandles(const std::vector<CandleData
         size_t second_idx = candles.size() - 2;
         size_t third_idx = candles.size() - 3;
         
+        // Print timestamps for verification (formatted for 5-minute boundaries)
+        std::cout << "\n=== Last 3 Candles Data ===" << std::endl;
+        std::cout << "Total candles available: " << candles.size() << std::endl;
+        std::cout << "Using candles at indices: " << third_idx << ", " << second_idx << ", " << last_idx << std::endl;
+        
+        // Format timestamp to show only 5-minute boundaries
+        auto format5MinTimestamp = [](const std::string& timestamp) -> std::string {
+            // Extract date and time from timestamp like "2025-07-18T11:58:12+0530"
+            if (timestamp.length() >= 16) {
+                std::string date_part = timestamp.substr(0, 10); // "2025-07-18"
+                std::string time_part = timestamp.substr(11, 5); // "11:58"
+                
+                // Round to nearest 5-minute boundary
+                int hour = std::stoi(time_part.substr(0, 2));
+                int minute = std::stoi(time_part.substr(3, 2));
+                int rounded_minute = (minute / 5) * 5; // Round down to nearest 5
+                
+                std::ostringstream oss;
+                oss << date_part << " " << std::setfill('0') << std::setw(2) << hour 
+                    << ":" << std::setfill('0') << std::setw(2) << rounded_minute;
+                return oss.str();
+            }
+            return timestamp;
+        };
+        
+        // Show raw timestamps first
+        std::cout << "Raw timestamps from API:" << std::endl;
+        std::cout << "Third candle (oldest): " << candles[third_idx].timestamp << std::endl;
+        std::cout << "Second candle: " << candles[second_idx].timestamp << std::endl;
+        std::cout << "Last candle (most recent): " << candles[last_idx].timestamp << std::endl;
+        
+        // Show formatted 5-minute timestamps
+        std::cout << "\nFormatted 5-minute timestamps:" << std::endl;
+        std::cout << "Third candle (oldest): " << format5MinTimestamp(candles[third_idx].timestamp)
+                  << " | O:" << candles[third_idx].open 
+                  << " H:" << candles[third_idx].high 
+                  << " L:" << candles[third_idx].low 
+                  << " C:" << candles[third_idx].close 
+                  << " EMA:" << ema_values[third_idx] << std::endl;
+        
+        std::cout << "Second candle: " << format5MinTimestamp(candles[second_idx].timestamp)
+                  << " | O:" << candles[second_idx].open 
+                  << " H:" << candles[second_idx].high 
+                  << " L:" << candles[second_idx].low 
+                  << " C:" << candles[second_idx].close 
+                  << " EMA:" << ema_values[second_idx] << std::endl;
+        
+        std::cout << "Last candle (most recent): " << format5MinTimestamp(candles[last_idx].timestamp)
+                  << " | O:" << candles[last_idx].open 
+                  << " H:" << candles[last_idx].high 
+                  << " L:" << candles[last_idx].low 
+                  << " C:" << candles[last_idx].close 
+                  << " EMA:" << ema_values[last_idx] << std::endl;
+        std::cout << "=================================" << std::endl;
+        
         // Last candle (most recent)
         data.last_open = candles[last_idx].open;
         data.last_high = candles[last_idx].high;
@@ -892,20 +947,31 @@ void ZerodhaClient::runTradingLoop() {
                 }
             }
             
-            // Get recent historical data (last 10 candles for EMA calculation)
-            auto ten_minutes_ago = now - std::chrono::minutes(50); // 10 candles * 5 minutes
-            std::string from_date = formatDate(ten_minutes_ago);
+            // Get historical data for EMA calculation (fetch 10 days of data)
+            // 10 days = 240 hours = 2880 candles for 5-minute timeframe
+            auto data_start_time = now - std::chrono::hours(240); // 10 days of data
+            std::string from_date = formatDate(data_start_time);
             std::string to_date = formatDate(now);
             
             std::vector<CandleData> candles = getHistoricalData(symbol, timeframe, from_date, to_date);
             
+            // Debug: Print raw timestamp data from API
+            std::cout << "Fetched " << candles.size() << " candles for " << symbol << " (expected ~2880 candles for 10 days of 5-min data)" << std::endl;
+            if (!candles.empty()) {
+                std::cout << "First candle timestamp: " << candles[0].timestamp << std::endl;
+                std::cout << "Last candle timestamp: " << candles[candles.size()-1].timestamp << std::endl;
+            }
+            
+            // Save data to CSV for verification
             if (candles.size() >= 3) {
-                // Calculate EMA
                 std::vector<double> close_prices;
                 for (const auto& candle : candles) {
                     close_prices.push_back(candle.close);
                 }
                 std::vector<double> ema_values = calculateEMA(close_prices, ema_period);
+                
+                // Save raw data to CSV for verification (exactly as received from API)
+                saveInstrumentDataToCSV(symbol + "_raw", candles, ema_values);
                 
                 // Get last 3 candles
                 LastThreeCandles last_three = getLastThreeCandles(candles, ema_values);
@@ -924,13 +990,23 @@ void ZerodhaClient::runTradingLoop() {
                 
                 // Retry with same symbol
                 candles = getHistoricalData(symbol, timeframe, from_date, to_date);
+                
+                // Debug: Print raw timestamp data from API (retry)
+                std::cout << "Retry - Fetched " << candles.size() << " candles for " << symbol << " (expected ~2880 candles for 10 days of 5-min data)" << std::endl;
+                if (!candles.empty()) {
+                    std::cout << "Retry - First candle timestamp: " << candles[0].timestamp << std::endl;
+                    std::cout << "Retry - Last candle timestamp: " << candles[candles.size()-1].timestamp << std::endl;
+                }
+                
                 if (candles.size() >= 3) {
-                    // Calculate EMA
                     std::vector<double> close_prices;
                     for (const auto& candle : candles) {
                         close_prices.push_back(candle.close);
                     }
                     std::vector<double> ema_values = calculateEMA(close_prices, ema_period);
+                    
+                    // Save raw data to CSV for verification (retry)
+                    saveInstrumentDataToCSV(symbol + "_retry_raw", candles, ema_values);
                     
                     // Get last 3 candles
                     LastThreeCandles last_three = getLastThreeCandles(candles, ema_values);
