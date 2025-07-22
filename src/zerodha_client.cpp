@@ -794,8 +794,9 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
         
         signal.action = "BUY";
         signal.entry_price = data.last_close;
-        signal.stop_loss = data.third_low;
-        signal.target = data.last_close + (2 * (data.last_close - data.third_low));
+        // Stop loss: lowest of second and third candle lows
+        signal.stop_loss = (std::min)(data.second_low, data.third_low);
+        signal.target = data.last_close + (2 * (data.last_close - signal.stop_loss));
         
         std::cout << "BUY Signal for " << symbol << " - Entry: " << signal.entry_price 
                   << ", SL: " << signal.stop_loss << ", Target: " << signal.target << std::endl;
@@ -812,8 +813,9 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
         
         signal.action = "SELL";
         signal.entry_price = data.last_close;
-        signal.stop_loss = data.third_high;
-        signal.target = data.last_close - (2 * (data.third_high - data.last_close));
+        // Stop loss: highest of second and third candle highs
+        signal.stop_loss = (std::max)(data.second_high, data.third_high);
+        signal.target = data.last_close - (2 * (signal.stop_loss - data.last_close));
         
         std::cout << "SELL Signal for " << symbol << " - Entry: " << signal.entry_price 
                   << ", SL: " << signal.stop_loss << ", Target: " << signal.target << std::endl;
@@ -914,7 +916,7 @@ void ZerodhaClient::runTradingLoop() {
         int current_hour = tm.tm_hour;
         int current_minute = tm.tm_min;
         
-        if (current_hour < 13 || (current_hour == 13 && current_minute < 00) || 
+        if (current_hour < 9 || (current_hour == 9 && current_minute < 25) || 
             current_hour > 15 || (current_hour == 15 && current_minute > 30)) {
             std::cout << "Market is closed. Waiting..." << std::endl;
             std::this_thread::sleep_for(std::chrono::minutes(5));
@@ -962,62 +964,22 @@ void ZerodhaClient::runTradingLoop() {
                 std::cout << "Last candle timestamp: " << candles[candles.size()-1].timestamp << std::endl;
             }
             
-            // Save data to CSV for verification
+            // Save raw data to CSV for verification (exactly as received from API)
+            // saveInstrumentDataToCSV(symbol + "_raw", candles, ema_values);
+            
             if (candles.size() >= 3) {
                 std::vector<double> close_prices;
                 for (const auto& candle : candles) {
                     close_prices.push_back(candle.close);
                 }
                 std::vector<double> ema_values = calculateEMA(close_prices, ema_period);
-                
-                // Save raw data to CSV for verification (exactly as received from API)
-                saveInstrumentDataToCSV(symbol + "_raw", candles, ema_values);
-                
                 // Get last 3 candles
                 LastThreeCandles last_three = getLastThreeCandles(candles, ema_values);
-                
                 // Analyze strategy
                 TradeSignal signal = analyzeStrategy(symbol, last_three);
-                
                 // Place order if signal exists
                 if (!signal.action.empty()) {
                     placeOrder(signal);
-                }
-            } else {
-                // Rule 2: If historical data fails, wait 60 seconds and retry
-                std::cout << "Historical data failed for " << symbol << ". Waiting 60 seconds to retry..." << std::endl;
-                std::this_thread::sleep_for(std::chrono::seconds(60));
-                
-                // Retry with same symbol
-                candles = getHistoricalData(symbol, timeframe, from_date, to_date);
-                
-                // Debug: Print raw timestamp data from API (retry)
-                std::cout << "Retry - Fetched " << candles.size() << " candles for " << symbol << " (expected ~2880 candles for 10 days of 5-min data)" << std::endl;
-                if (!candles.empty()) {
-                    std::cout << "Retry - First candle timestamp: " << candles[0].timestamp << std::endl;
-                    std::cout << "Retry - Last candle timestamp: " << candles[candles.size()-1].timestamp << std::endl;
-                }
-                
-                if (candles.size() >= 3) {
-                    std::vector<double> close_prices;
-                    for (const auto& candle : candles) {
-                        close_prices.push_back(candle.close);
-                    }
-                    std::vector<double> ema_values = calculateEMA(close_prices, ema_period);
-                    
-                    // Save raw data to CSV for verification (retry)
-                    saveInstrumentDataToCSV(symbol + "_retry_raw", candles, ema_values);
-                    
-                    // Get last 3 candles
-                    LastThreeCandles last_three = getLastThreeCandles(candles, ema_values);
-                    
-                    // Analyze strategy
-                    TradeSignal signal = analyzeStrategy(symbol, last_three);
-                    
-                    // Place order if signal exists
-                    if (!signal.action.empty()) {
-                        placeOrder(signal);
-                    }
                 }
             }
             

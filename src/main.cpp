@@ -131,9 +131,9 @@ int main() {
             std::cout << ", EMA(" << ema_period << ") calculated";
             
             // Save to CSV just comment it for not saving data to csv
-            if (client.saveInstrumentDataToCSV(symbol, candles, ema_values)) {
-                std::cout << ", saved to CSV";
-            }
+            // if (client.saveInstrumentDataToCSV(symbol, candles, ema_values)) {
+            //     std::cout << ", saved to CSV";
+            // }
             
             std::cout << std::endl;
             success_count++;
