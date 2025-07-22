@@ -914,7 +914,7 @@ void ZerodhaClient::runTradingLoop() {
         int current_hour = tm.tm_hour;
         int current_minute = tm.tm_min;
         
-        if (current_hour < 9 || (current_hour == 9 && current_minute < 15) || 
+        if (current_hour < 13 || (current_hour == 13 && current_minute < 00) || 
             current_hour > 15 || (current_hour == 15 && current_minute > 30)) {
             std::cout << "Market is closed. Waiting..." << std::endl;
             std::this_thread::sleep_for(std::chrono::minutes(5));
