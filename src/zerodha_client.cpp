@@ -777,7 +777,7 @@ LastThreeCandles ZerodhaClient::getLastThreeCandles(const std::vector<CandleData
     return data;
 }
 
-TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const LastThreeCandles& data) {
+TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const LastThreeCandles& data, double ltp) {
     TradeSignal signal;
     signal.symbol = symbol;
     signal.quantity = 1; // Default quantity
@@ -789,14 +789,14 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
        // data.second_close > data.third_close && 
         data.second_close > data.second_ema && 
         data.third_close > data.third_ema && 
-        data.last_close > data.last_ema &&
-        data.last_close > data.second_high) {
+        ltp > data.last_ema &&
+        ltp > data.second_high) {
         
         signal.action = "BUY";
-        signal.entry_price = data.last_close;
+        signal.entry_price = ltp; // Use LTP instead of last candle close
         // Stop loss: lowest of second and third candle lows
         signal.stop_loss = (std::min)(data.second_low, data.third_low);
-        signal.target = data.last_close + (2 * (data.last_close - signal.stop_loss));
+        signal.target = ltp + (2 * (ltp - signal.stop_loss)); // Use LTP for target calculation
         
         std::cout << "BUY Signal for " << symbol << " - Entry: " << signal.entry_price 
                   << ", SL: " << signal.stop_loss << ", Target: " << signal.target << std::endl;
@@ -808,14 +808,14 @@ TradeSignal ZerodhaClient::analyzeStrategy(const std::string& symbol, const Last
             // data.second_close < data.third_close && 
              data.second_close < data.second_ema && 
              data.third_close < data.third_ema && 
-             data.last_close < data.last_ema &&
-             data.last_close < data.second_low) {
+             ltp < data.last_ema &&
+             ltp < data.second_low) {
         
         signal.action = "SELL";
-        signal.entry_price = data.last_close;
+        signal.entry_price = ltp; // Use LTP instead of last candle close
         // Stop loss: highest of second and third candle highs
         signal.stop_loss = (std::max)(data.second_high, data.third_high);
-        signal.target = data.last_close - (2 * (signal.stop_loss - data.last_close));
+        signal.target = ltp - (2 * (signal.stop_loss - ltp)); // Use LTP for target calculation
         
         std::cout << "SELL Signal for " << symbol << " - Entry: " << signal.entry_price 
                   << ", SL: " << signal.stop_loss << ", Target: " << signal.target << std::endl;
@@ -916,8 +916,8 @@ void ZerodhaClient::runTradingLoop() {
         int current_hour = tm.tm_hour;
         int current_minute = tm.tm_min;
         
-        if (current_hour < 13 || (current_hour == 13 && current_minute < 40) ||     
-            current_hour > 15 || (current_hour == 15 && current_minute > 30)) {
+        if (current_hour < 9 || (current_hour == 9 && current_minute < 25) ||     
+            current_hour > 23 || (current_hour == 23 && current_minute > 30)) {
             std::cout << "Market is closed. Waiting..." << std::endl;
             std::this_thread::sleep_for(std::chrono::minutes(5));
             continue;
@@ -937,6 +937,9 @@ void ZerodhaClient::runTradingLoop() {
             }
             
             std::cout << "Analyzing " << symbol << "..." << std::endl;
+            
+            // Get current LTP for the symbol
+            double ltp = getLTP(symbol);
             
             // Get timeframe and EMA period from trade settings
             std::string timeframe = "5minute";
@@ -976,12 +979,15 @@ void ZerodhaClient::runTradingLoop() {
                 // Get last 3 candles
                 LastThreeCandles last_three = getLastThreeCandles(candles, ema_values);
                 // Analyze strategy
-                TradeSignal signal = analyzeStrategy(symbol, last_three);
+                TradeSignal signal = analyzeStrategy(symbol, last_three, ltp);
                 // Place order if signal exists
                 if (!signal.action.empty()) {
                     placeOrder(signal);
                 }
             }
+            
+            // Check position status using the same LTP (no need to fetch again)
+            checkPositionStatusWithLTP(symbol, ltp);
             
             // Small delay between symbols (continuous monitoring)
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -1185,9 +1191,8 @@ void ZerodhaClient::logTargetHit(const std::string& symbol, double price) {
 
 // Position monitoring methods
 void ZerodhaClient::checkPositionStatus() {
-    // This method would check if stop loss or target orders have been executed
-    // For now, we'll implement a basic version that logs when positions are closed
-    // In a real implementation, you would query the Zerodha API for order status
+    // This method checks if stop loss or target orders have been executed
+    // For symbols that weren't processed in the main loop (no LTP available)
     
     std::vector<std::string> positions_to_remove;
     
@@ -1195,38 +1200,35 @@ void ZerodhaClient::checkPositionStatus() {
         const std::string& symbol = pair.first;
         const ActivePosition& position = pair.second;
         
-        // Get current market price to check if SL/Target hit
-        auto now = std::chrono::system_clock::now();
-        auto ten_minutes_ago = now - std::chrono::minutes(10);
-        std::string from_date = formatDate(ten_minutes_ago);
-        std::string to_date = formatDate(now);
-        
-        std::vector<CandleData> candles = getHistoricalData(symbol, "5minute", from_date, to_date);
-        
-        if (!candles.empty()) {
-            double current_price = candles.back().close;
+        // Only check positions that weren't processed in the main loop
+        // (This function is called less frequently now)
+        if (symbol != "PROCESSED_IN_MAIN_LOOP") {
+            // Get current LTP for real-time monitoring
+            double current_ltp = getLTP(symbol);
             
-            // Check if stop loss hit
-            if (position.action == "BUY" && current_price <= position.stop_loss) {
-                logStopLossHit(symbol, current_price);
-                positions_to_remove.push_back(symbol);
-                std::cout << "Stop Loss hit for " << symbol << " at " << current_price << std::endl;
-            }
-            else if (position.action == "SELL" && current_price >= position.stop_loss) {
-                logStopLossHit(symbol, current_price);
-                positions_to_remove.push_back(symbol);
-                std::cout << "Stop Loss hit for " << symbol << " at " << current_price << std::endl;
-            }
-            // Check if target hit
-            else if (position.action == "BUY" && current_price >= position.target) {
-                logTargetHit(symbol, current_price);
-                positions_to_remove.push_back(symbol);
-                std::cout << "Target hit for " << symbol << " at " << current_price << std::endl;
-            }
-            else if (position.action == "SELL" && current_price <= position.target) {
-                logTargetHit(symbol, current_price);
-                positions_to_remove.push_back(symbol);
-                std::cout << "Target hit for " << symbol << " at " << current_price << std::endl;
+            if (current_ltp > 0.0) {
+                // Check if stop loss hit
+                if (position.action == "BUY" && current_ltp <= position.stop_loss) {
+                    logStopLossHit(symbol, current_ltp);
+                    positions_to_remove.push_back(symbol);
+                    std::cout << "Stop Loss hit for " << symbol << " at LTP: " << current_ltp << " (SL: " << position.stop_loss << ")" << std::endl;
+                }
+                else if (position.action == "SELL" && current_ltp >= position.stop_loss) {
+                    logStopLossHit(symbol, current_ltp);
+                    positions_to_remove.push_back(symbol);
+                    std::cout << "Stop Loss hit for " << symbol << " at LTP: " << current_ltp << " (SL: " << position.stop_loss << ")" << std::endl;
+                }
+                // Check if target hit
+                else if (position.action == "BUY" && current_ltp >= position.target) {
+                    logTargetHit(symbol, current_ltp);
+                    positions_to_remove.push_back(symbol);
+                    std::cout << "Target hit for " << symbol << " at LTP: " << current_ltp << " (Target: " << position.target << ")" << std::endl;
+                }
+                else if (position.action == "SELL" && current_ltp <= position.target) {
+                    logTargetHit(symbol, current_ltp);
+                    positions_to_remove.push_back(symbol);
+                    std::cout << "Target hit for " << symbol << " at LTP: " << current_ltp << " (Target: " << position.target << ")" << std::endl;
+                }
             }
         }
     }
@@ -1235,4 +1237,84 @@ void ZerodhaClient::checkPositionStatus() {
     for (const auto& symbol : positions_to_remove) {
         removeActivePosition(symbol);
     }
+}
+
+void ZerodhaClient::checkPositionStatusWithLTP(const std::string& symbol, double ltp) {
+    // This method checks if stop loss or target orders have been executed
+    // Using the provided LTP (no need to fetch again)
+    
+    if (ltp <= 0.0) return; // Invalid LTP
+    
+    auto it = active_positions_.find(symbol);
+    if (it == active_positions_.end()) return; // No active position for this symbol
+    
+    const ActivePosition& position = it->second;
+    std::vector<std::string> positions_to_remove;
+    
+    // Check if stop loss hit
+    if (position.action == "BUY" && ltp <= position.stop_loss) {
+        logStopLossHit(symbol, ltp);
+        positions_to_remove.push_back(symbol);
+        std::cout << "Stop Loss hit for " << symbol << " at LTP: " << ltp << " (SL: " << position.stop_loss << ")" << std::endl;
+    }
+    else if (position.action == "SELL" && ltp >= position.stop_loss) {
+        logStopLossHit(symbol, ltp);
+        positions_to_remove.push_back(symbol);
+        std::cout << "Stop Loss hit for " << symbol << " at LTP: " << ltp << " (SL: " << position.stop_loss << ")" << std::endl;
+    }
+    // Check if target hit
+    else if (position.action == "BUY" && ltp >= position.target) {
+        logTargetHit(symbol, ltp);
+        positions_to_remove.push_back(symbol);
+        std::cout << "Target hit for " << symbol << " at LTP: " << ltp << " (Target: " << position.target << ")" << std::endl;
+    }
+    else if (position.action == "SELL" && ltp <= position.target) {
+        logTargetHit(symbol, ltp);
+        positions_to_remove.push_back(symbol);
+        std::cout << "Target hit for " << symbol << " at LTP: " << ltp << " (Target: " << position.target << ")" << std::endl;
+    }
+    
+    // Remove closed positions
+    for (const auto& sym : positions_to_remove) {
+        removeActivePosition(sym);
+    }
+} 
+
+double ZerodhaClient::getLTP(const std::string& symbol) {
+    if (!isLoggedIn()) {
+        std::cerr << "Error: Not logged in. Cannot get LTP." << std::endl;
+        return 0.0;
+    }
+    
+    // Prepare the API request
+    std::string url = "https://api.kite.trade/quote/ltp";
+    std::map<std::string, std::string> params;
+    params["i"] = "NSE:" + symbol; // Format: NSE:SYMBOL
+    
+    std::map<std::string, std::string> headers = getAuthHeaders();
+    
+    // Make the API request
+    cpr::Response response = makeRequest(url, params, headers);
+    
+    double ltp = 0.0;
+    
+    if (response.status_code == 200) {
+        try {
+            nlohmann::json json = nlohmann::json::parse(response.text);
+            
+            if (json["status"] == "success" && json["data"].contains("NSE:" + symbol)) {
+                ltp = json["data"]["NSE:" + symbol]["last_price"];
+                std::cout << "LTP for " << symbol << ": " << ltp << std::endl;
+            } else {
+                std::cerr << "Error: No LTP data available for " << symbol << std::endl;
+            }
+        } catch (const std::exception& e) {
+            std::cerr << "Error parsing LTP response: " << e.what() << std::endl;
+        }
+    } else {
+        std::cerr << "Error getting LTP for " << symbol << ". Status: " << response.status_code << std::endl;
+        std::cerr << "Response: " << response.text << std::endl;
+    }
+    
+    return ltp;
 } 

@@ -122,6 +122,9 @@ public:
     bool fetchHistoricalDataForAllSymbols(const std::string& from_date,
                                          const std::string& to_date);
     
+    // Market quote methods
+    double getLTP(const std::string& symbol);
+    
     // Instrument management methods
     bool saveInstrumentsToCSV(const std::string& filename);
     bool loadInstrumentsFromCSV(const std::string& filename);
@@ -133,7 +136,7 @@ public:
     
     // Trading strategy methods
     LastThreeCandles getLastThreeCandles(const std::vector<CandleData>& candles, const std::vector<double>& ema_values);
-    TradeSignal analyzeStrategy(const std::string& symbol, const LastThreeCandles& data);
+    TradeSignal analyzeStrategy(const std::string& symbol, const LastThreeCandles& data, double ltp);
     bool placeOrder(const TradeSignal& signal);
     
     // Position management methods
@@ -151,6 +154,7 @@ public:
     
     // Position monitoring methods
     void checkPositionStatus();
+    void checkPositionStatusWithLTP(const std::string& symbol, double ltp);
     
     // Trading loop method
     void runTradingLoop();
