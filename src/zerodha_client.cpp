@@ -960,6 +960,9 @@ void ZerodhaClient::runTradingLoop() {
             
             std::vector<CandleData> candles = getHistoricalData(symbol, timeframe, from_date, to_date);
             
+            // Add 1-second delay after fetching historical data to avoid API rate limits
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            
             // Debug: Print raw timestamp data from API
             std::cout << "Fetched " << candles.size() << " candles for " << symbol << " (expected ~2880 candles for 10 days of 5-min data)" << std::endl;
             if (!candles.empty()) {
