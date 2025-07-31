@@ -961,7 +961,7 @@ void ZerodhaClient::runTradingLoop() {
             std::vector<CandleData> candles = getHistoricalData(symbol, timeframe, from_date, to_date);
             
             // Add 1-second delay after fetching historical data to avoid API rate limits
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::seconds(2));
             
             // Debug: Print raw timestamp data from API
             std::cout << "Fetched " << candles.size() << " candles for " << symbol << " (expected ~2880 candles for 10 days of 5-min data)" << std::endl;
@@ -1253,6 +1253,57 @@ void ZerodhaClient::checkPositionStatusWithLTP(const std::string& symbol, double
     
     const ActivePosition& position = it->second;
     std::vector<std::string> positions_to_remove;
+    
+    // Get recent historical data to show previous 2 candle information
+    auto now = std::chrono::system_clock::now();
+    auto data_start_time = now - std::chrono::hours(2); // Get last 2 hours of data
+    std::string from_date = formatDate(data_start_time);
+    std::string to_date = formatDate(now);
+    
+    std::vector<CandleData> candles = getHistoricalData(symbol, "5minute", from_date, to_date);
+    
+    // Show previous 2 candle information for monitoring
+    if (candles.size() >= 2) {
+        std::cout << "\n=== Previous 2 Candles for " << symbol << " ===" << std::endl;
+        
+        // Format timestamp function (reuse from getLastThreeCandles)
+        auto format5MinTimestamp = [](const std::string& timestamp) -> std::string {
+            if (timestamp.length() >= 16) {
+                std::string date_part = timestamp.substr(0, 10);
+                std::string time_part = timestamp.substr(11, 5);
+                int hour = std::stoi(time_part.substr(0, 2));
+                int minute = std::stoi(time_part.substr(3, 2));
+                int rounded_minute = (minute / 5) * 5;
+                
+                std::ostringstream oss;
+                oss << date_part << " " << std::setfill('0') << std::setw(2) << hour 
+                    << ":" << std::setfill('0') << std::setw(2) << rounded_minute;
+                return oss.str();
+            }
+            return timestamp;
+        };
+        
+        // Show second-to-last candle
+        size_t second_last_idx = candles.size() - 2;
+        std::cout << "Second-to-last candle: " << format5MinTimestamp(candles[second_last_idx].timestamp)
+                  << " | O:" << candles[second_last_idx].open 
+                  << " H:" << candles[second_last_idx].high 
+                  << " L:" << candles[second_last_idx].low 
+                  << " C:" << candles[second_last_idx].close << std::endl;
+        
+        // Show last candle
+        size_t last_idx = candles.size() - 1;
+        std::cout << "Last candle: " << format5MinTimestamp(candles[last_idx].timestamp)
+                  << " | O:" << candles[last_idx].open 
+                  << " H:" << candles[last_idx].high 
+                  << " L:" << candles[last_idx].low 
+                  << " C:" << candles[last_idx].close << std::endl;
+        
+        std::cout << "Current LTP: " << ltp << std::endl;
+        std::cout << "Position: " << position.action << " | Entry: " << position.entry_price 
+                  << " | SL: " << position.stop_loss << " | Target: " << position.target << std::endl;
+        std::cout << "=================================" << std::endl;
+    }
     
     // Check if stop loss hit
     if (position.action == "BUY" && ltp <= position.stop_loss) {
